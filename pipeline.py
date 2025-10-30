@@ -110,7 +110,7 @@ def full_preprocessing_pipeline(combined_df, val_cutoff, test_cutoff, save_paths
     # Add temporal features
     combined_df = add_temporal_features(combined_df)
     
-    # Add lag and rolling features (before split to avoid leakage in features)
+    # Add lag and rolling features
     combined_df = add_lag_features(combined_df, lags=[1, 7])
     combined_df = add_rolling_features(combined_df, windows=[7])
     
@@ -128,7 +128,7 @@ def full_preprocessing_pipeline(combined_df, val_cutoff, test_cutoff, save_paths
         train_df, val_df, test_df, features_to_impute
     )
     
-    # Normalize (exclude temporal features)
+    # Normalize
     temporal_cols = ['day_of_week', 'month', 'quarter', 'day_sin', 'day_cos', 'month_sin', 'month_cos']
     features_to_scale = [col for col in features_to_impute if col not in temporal_cols]
     
