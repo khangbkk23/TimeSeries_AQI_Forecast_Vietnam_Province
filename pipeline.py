@@ -1,3 +1,4 @@
+from math import comb
 import pandas as pd
 import numpy as np
 import os
@@ -104,6 +105,8 @@ def normalize_data(train_df, val_df, test_df, features_to_scale):
 
 def full_preprocessing_pipeline(combined_df, val_cutoff, test_cutoff, save_paths):
     
+    # Clean data
+    combined_df = clean_data(combined_df)
     # Add temporal features
     combined_df = add_temporal_features(combined_df)
     
