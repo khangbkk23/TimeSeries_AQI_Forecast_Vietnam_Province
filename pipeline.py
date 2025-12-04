@@ -37,6 +37,10 @@ def clean_data(df):
     return df
 
 def add_temporal_features(df):
+    df['hour'] = df['Date'].dt.hour
+    df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
+    df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+    
     df['day_of_week'] = df['Date'].dt.dayofweek
     df['month'] = df['Date'].dt.month
     df['quarter'] = df['Date'].dt.quarter
@@ -79,16 +83,16 @@ def impute_data(train_df, val_df, test_df, features_to_impute):
     imputation_values = {}
     
     for col in features_to_impute:
-        train_df[col] = train_df.groupby('station_id')[col].fillna(method='ffill')
-        train_df[col] = train_df.groupby('station_id')[col].fillna(method='bfill')
+        train_df[col] = train_df.groupby('station_id')[col].ffill()
+        train_df[col] = train_df.groupby('station_id')[col].bfill()
         median_val = train_df[col].median()
         train_df[col] = train_df[col].fillna(median_val)
         imputation_values[col] = median_val
         
-        val_df[col] = val_df.groupby('station_id')[col].fillna(method='ffill')
+        val_df[col] = val_df.groupby('station_id')[col].ffill()
         val_df[col] = val_df[col].fillna(median_val)
         
-        test_df[col] = test_df.groupby('station_id')[col].fillna(method='ffill')
+        test_df[col] = test_df.groupby('station_id')[col].ffill()
         test_df[col] = test_df[col].fillna(median_val)
 
     return train_df, val_df, test_df, imputation_values
@@ -129,7 +133,12 @@ def full_preprocessing_pipeline(combined_df, val_cutoff, test_cutoff, save_paths
     )
     
     # Normalize
-    temporal_cols = ['day_of_week', 'month', 'quarter', 'day_sin', 'day_cos', 'month_sin', 'month_cos']
+    temporal_cols = [
+        'hour', 'day_of_week', 'month', 'quarter', 
+        'hour_sin', 'hour_cos',
+        'day_sin', 'day_cos', 
+        'month_sin', 'month_cos'
+    ]
     features_to_scale = [col for col in features_to_impute if col not in temporal_cols]
     
     train_df, val_df, test_df, global_scaler = normalize_data(

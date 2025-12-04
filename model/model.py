@@ -42,30 +42,50 @@ class DualEmbeddingLSTM(nn.Module):
             dropout=config.dropout if config.num_layers > 1 else 0,
             bidirectional=False
         )
+        self.layer_norm = nn.LayerNorm(config.hidden_dim)
+        fusion_dim = config.hidden_dim * 2
         
         # 3. Attention layer
+        
         self.attention = Attention(config.hidden_dim)
         
-        # 3. Regressor
         self.regressor = nn.Sequential(
-            nn.Linear(config.hidden_dim, 32),
-            nn.ReLU(),
+            nn.Linear(fusion_dim, 64),
             nn.Dropout(config.dropout),
-            nn.Linear(32, 1)
+            nn.Linear(64, 1)
         )
 
     def forward(self, x_seq, x_station, x_region):
-        s_vec = self.station_emb(x_station) # [Batch, S_Dim]
-        r_vec = self.region_emb(x_region)   # [Batch, R_Dim]
-        
+        s_vec = self.station_emb(x_station) 
+        r_vec = self.region_emb(x_region)   
         combined_vec = torch.cat([s_vec, r_vec], dim=1)
         seq_len = x_seq.size(1)
         emb_seq = combined_vec.unsqueeze(1).repeat(1, seq_len, 1)
-        
         final_input = torch.cat([x_seq, emb_seq], dim=2)
+        lstm_out, _ = self.lstm(final_input) 
+        lstm_out = self.layer_norm(lstm_out)
+        context_vector, attn_weights = self.attention(lstm_out)
+        last_hidden = lstm_out[:, -1, :] 
+        combined_features = torch.cat([context_vector, last_hidden], dim=1) 
+        return self.regressor(combined_features).squeeze()
+    
+class WeightedMSELoss(nn.Module):
+    def __init__(self, high_val_weight=2.0, threshold=1.0):
+        """
+        Args:
+            high_val_weight: Hệ số phạt
+            threshold: Ngưỡng xác định đỉnh.
+        """
+        super().__init__()
+        self.high_val_weight = high_val_weight
+        self.threshold = threshold
+        self.mse = nn.MSELoss(reduction='none')
+
+    def forward(self, pred, target):
+        loss = self.mse(pred, target)
         
-        lstm_out, _ = self.lstm(final_input)
+        high_val_mask = target > self.threshold
+        weights = torch.ones_like(loss)
+        weights[high_val_mask] = self.high_val_weight
         
-        context_vector, _ = self.attention(lstm_out)
-        
-        return self.regressor(context_vector).squeeze()
+        return torch.mean(loss * weights)

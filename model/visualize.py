@@ -9,7 +9,7 @@ def plot_learning_curves(train_losses, val_losses, save_dir='./results'):
     plt.plot(train_losses, label='Training loss', color='blue', linewidth=2)
     plt.plot(val_losses, label='Validation loss', color='orange', linewidth=2)
     
-    plt.title('Learning Curves', fontsize=14)
+    plt.title('Learning curves', fontsize=14)
     plt.xlabel('Epochs', fontsize=12)
     plt.ylabel('Loss', fontsize=12)
     plt.legend()
