@@ -26,20 +26,25 @@ class DualEmbeddingLSTM(nn.Module):
         """
         super(DualEmbeddingLSTM, self).__init__()
         
-        # 1. Embedding Layers
+        # 1. Embedding layers
         self.station_emb = nn.Embedding(num_stations, config.embedding_dim_station)
         self.region_emb = nn.Embedding(num_regions, config.embedding_dim_region)
         
-        # 2. LSTM Layer
+        # 2. LSTM layer
         lstm_input_size = input_dim + config.embedding_dim_station + config.embedding_dim_region
         
+        lstm_input_size = input_dim + config.embedding_dim_station + config.embedding_dim_region
         self.lstm = nn.LSTM(
             input_size=lstm_input_size,
             hidden_size=config.hidden_dim,
             num_layers=config.num_layers,
             batch_first=True,
-            dropout=config.dropout if config.num_layers > 1 else 0
+            dropout=config.dropout if config.num_layers > 1 else 0,
+            bidirectional=False
         )
+        
+        # 3. Attention layer
+        self.attention = Attention(config.hidden_dim)
         
         # 3. Regressor
         self.regressor = nn.Sequential(
@@ -61,6 +66,6 @@ class DualEmbeddingLSTM(nn.Module):
         
         lstm_out, _ = self.lstm(final_input)
         
-        last_out = lstm_out[:, -1, :]
+        context_vector, _ = self.attention(lstm_out)
         
-        return self.regressor(last_out).squeeze()
+        return self.regressor(context_vector).squeeze()

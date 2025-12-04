@@ -18,7 +18,7 @@ def plot_learning_curves(train_losses, val_losses, save_dir='./results'):
     save_path = os.path.join(save_dir, 'learning_curves.png')
     plt.savefig(save_path)
     plt.close()
-    print(f"Đã lưu biểu đồ Loss tại: {save_path}")
+    print(f"Đã lưu biểu đồ loss tại: {save_path}")
 
 def plot_prediction_comparison(targets, predictions, station_name='Station', save_dir='./results', limit=200):
     os.makedirs(save_dir, exist_ok=True)

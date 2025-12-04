@@ -90,16 +90,15 @@ class AQIDualEmbeddingDataset(Dataset):
 def get_dataloaders(config):
     s_map, r_map, s_r_lookup = create_mappings(config['info_path'])
     
-    print(f"Đang tải dữ liệu train từ {config['train_dir']}...")
     train_ds = AQIDualEmbeddingDataset(config['train_dir'], s_map, s_r_lookup, config['sequence_length'])
-    
-    print(f"Đang tải dữ liệu validation từ {config['val_dir']}...")
     val_ds = AQIDualEmbeddingDataset(config['val_dir'], s_map, s_r_lookup, config['sequence_length'])
+    test_ds = AQIDualEmbeddingDataset(config['test_dir'], s_map, s_r_lookup, config['sequence_length'])
     
     train_loader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=config['batch_size'], shuffle=False)
+    test_loader = DataLoader(test_ds, batch_size=config['batch_size'], shuffle=False)
     
-    print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
+    print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}, Test size: {len(test_ds)}")
     
     info = {
         'num_stations': len(s_map),
@@ -107,4 +106,4 @@ def get_dataloaders(config):
         'input_dim': train_ds.input_dim
     }
     
-    return train_loader, val_loader, info
+    return train_loader, val_loader, test_loader, info
