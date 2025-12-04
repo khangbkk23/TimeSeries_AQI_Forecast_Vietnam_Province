@@ -6,7 +6,7 @@ import os
 import numpy as np
 from tqdm import tqdm
 from model.data_utils import get_dataloaders
-from model.model import DualEmbeddingLSTM, WeightedMSELoss
+from model.model import DualEmbeddingBiLSTM, WeightedMSELoss
 from model.configs import cfg
 from model.visualize import plot_learning_curves, plot_prediction_comparison
 
@@ -98,15 +98,15 @@ def run_training():
         print("Lỗi: Không tìm thấy dữ liệu.")
         return None, None, [], [], 0, 0, [], []
 
-    model = DualEmbeddingLSTM(
+    model = DualEmbeddingBiLSTM(
         config=cfg,
         num_stations=data_info['num_stations'],
         num_regions=data_info['num_regions'],
         input_dim=data_info['input_dim']
     ).to(cfg.device)
     
-    # Dùng Weighted MSE với threshold thấp và weight vừa phải như đã bàn
-    criterion = WeightedMSELoss(high_val_weight=2.5, threshold=0.5)
+    # criterion = WeightedMSELoss(high_val_weight=2.5, threshold=0.5)
+    criterion = nn.HuberLoss(delta=1.0)
     
     optimizer = optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=weight_decay)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
@@ -215,8 +215,6 @@ if __name__ == "__main__":
                 station_name="FINAL_TEST_RESULT"
             )
             
-    # 2. Chạy phân tích nâng cao (Nếu bạn muốn dùng các hàm đã comment)
-    # Vì giờ bạn đã có đủ train_loader, test_loader, criterion nên có thể uncomment đoạn này:
     
     # from model.data_analysis import analyze_data_distribution
     # analyze_data_distribution(train_loader, val_loader, test_loader)

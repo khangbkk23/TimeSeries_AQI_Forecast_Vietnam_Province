@@ -10,27 +10,31 @@ class ModelConfig:
     save_model_path = 'best_aqi_model.pth'
 
     
-    scheduler_factor = 0.7
-    scheduler_patience = 7
-    min_lr = 5e-7
-    warmup_epochs = 5
+    scheduler_factor = 0.5
+    scheduler_patience = 6
+    min_lr = 1e-7
+    warmup_epochs = 3
     warmup_start_lr = 1e-5
     grad_clip = 1.0
-    loss_type = 'weighted_mse'
+    # loss_type = 'weighted_mse'
+    loss_type = 'huber'
     threshold = 0.5 
     high_val_weight = 2.5
     
     sequence_length = 24
-    embedding_dim_station = 12
-    embedding_dim_region = 6
-    hidden_dim = 96
-    num_layers = 2
-    dropout = 0.5
+    embedding_dim_station = 10
+    embedding_dim_region = 4
     
-    batch_size = 64
+    hidden_dim = 64
+    num_layers = 2
+    bidirectional = True
+    
+    dropout = 0.3
+    
+    batch_size = 32
     learning_rate = 0.0005
     epochs = 100
-    patience = 20           
+    patience = 25        
     
     @property
     def device(self):
