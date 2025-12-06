@@ -15,18 +15,16 @@ class AQIPredictor:
         print("Đang khởi tạo AQI Predictor...")
         self.device = torch.device('cpu')
         
-        # 1. Load Resources (Encoders & Scaler)
         base_path = os.path.dirname(os.path.abspath(__file__))
         
         self.station_enc = joblib.load(os.path.join(base_path, 'encoders/station_encoder.pkl'))
         self.region_enc = joblib.load(os.path.join(base_path, 'encoders/region_encoder.pkl'))
         self.scaler = joblib.load(os.path.join(base_path, 'normalized_data/global_scaler.pkl'))
         
-        # Load thông tin dataset để map Tỉnh -> Trạm
         json_path = os.path.join(base_path, 'data/origin/dataset_info.json')
         self.province_map = self._build_province_mapping(json_path)
         
-        # 2. Khởi tạo Model
+        # Khởi tạo Model
         num_stations = len(self.station_enc.classes_)
         num_regions = len(self.region_enc.classes_)
         input_dim = 24 
@@ -46,10 +44,8 @@ class AQIPredictor:
 
         self.model.load_state_dict(checkpoint)
         self.model.eval()
-        print("✅ AQI Predictor sẵn sàng hoạt động!")
 
     def _build_province_mapping(self, json_path):
-        """Map Tên Tỉnh -> Trạm đại diện & Vùng"""
         if not os.path.exists(json_path):
             print(f"Không tìm thấy {json_path}")
             return {}
@@ -105,10 +101,6 @@ class AQIPredictor:
         return df
 
     def preprocess_sequence(self, df_history):
-        """
-        Chuẩn bị Tensor đầu vào từ DataFrame lịch sử.
-        df_history cần > 30 dòng để tính đủ lag/rolling.
-        """
         # 1. Feature Engineering
         df_processed = self._add_engineered_features(df_history)
         
@@ -126,7 +118,7 @@ class AQIPredictor:
         try:
             data_window = df_processed[feature_cols].tail(24)
         except KeyError as e:
-            print(f"❌ Lỗi thiếu cột dữ liệu: {e}")
+            print(f"Lỗi thiếu cột dữ liệu: {e}")
             return None
 
         # 3. Scale dữ liệu
@@ -170,18 +162,17 @@ class AQIPredictor:
         print(f"Bắt đầu dự báo 7 ngày cho: {province_name} (Trạm: {station_id})")
 
         for i in range(7):
-            # a. Biến đổi dữ liệu -> Tensor
+            # Biến đổi dữ liệu -> Tensor
             input_tensor = self.preprocess_sequence(running_history)
             
             if input_tensor is None:
                 break
 
-            # b. Dự báo
+            # Dự báo
             with torch.no_grad():
-                # Model Dual chỉ nhận 3 tham số: seq, station, region
                 pred_val = self.model(input_tensor, s_idx, r_idx).item()
             
-            # c. Lưu kết quả
+            # Lưu kết quả
             last_date = running_history.iloc[-1]['Date']
             next_date = last_date + timedelta(days=1)
             
