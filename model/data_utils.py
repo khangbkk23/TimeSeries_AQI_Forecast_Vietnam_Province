@@ -1,14 +1,12 @@
 import os
 import glob
-import json
 import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 def get_counts_from_paths(data_dirs):
-    max_s, max_r, max_p = 0, 0, 0
-    
+    max_s, max_r = 0, 0
     all_files = []
     for d in data_dirs:
         all_files.extend(glob.glob(os.path.join(d, "*_processed.csv")))
@@ -16,36 +14,33 @@ def get_counts_from_paths(data_dirs):
     for f in all_files:
         try:
             df = pd.read_csv(f, nrows=1)
+            # Chỉ cần check Station và Region
             if 'station_id_encoded' in df.columns:
                 max_s = max(max_s, int(df['station_id_encoded'].iloc[0]))
             if 'region_encoded' in df.columns:
                 max_r = max(max_r, int(df['region_encoded'].iloc[0]))
-            if 'province_encoded' in df.columns:
-                max_p = max(max_p, int(df['province_encoded'].iloc[0]))
         except Exception as e:
             continue
-            
-    return max_s + 1, max_r + 1, max_p + 1
+    return max_s + 1, max_r + 1
 
-class AQITripleEmbeddingDataset(Dataset):
-    def __init__(self, data_dir, sequence_length=14, target_col='VN_AQI'):
+class AQIDualEmbeddingDataset(Dataset):
+    def __init__(self, data_dir, sequence_length=24, target_col='VN_AQI'):
         self.sequence_length = sequence_length
         self.samples = []
         
         file_paths = glob.glob(os.path.join(data_dir, "*_processed.csv"))
-        
         if not file_paths:
-            print(f"Không tìm thấy file csv nào trong {data_dir}")
+            print(f"Warning: Không tìm thấy data tại {data_dir}")
 
         for file_path in file_paths:
             try:
                 df = pd.read_csv(file_path)
                 
-
+                # Lấy 2 chỉ số encoded
                 s_idx = int(df['station_id_encoded'].iloc[0])
                 r_idx = int(df['region_encoded'].iloc[0])
-                p_idx = int(df['province_encoded'].iloc[0])
                 
+                # Bỏ các cột ID và Province ra khỏi input sequence
                 exclude_cols = ['Date', 'station_id', 'region', 'province', 
                                 'station_id_encoded', 'region_encoded', 'province_encoded', 
                                 target_col]
@@ -65,11 +60,9 @@ class AQITripleEmbeddingDataset(Dataset):
                             'sequence': seq_data,
                             'station_idx': s_idx,
                             'region_idx': r_idx,
-                            'province_idx': p_idx, # [MỚI]
                             'target': target_val
                         })
             except Exception as e:
-                print(f"Lỗi đọc file {file_path}: {e}")
                 continue
         
         if len(self.samples) > 0:
@@ -86,32 +79,26 @@ class AQITripleEmbeddingDataset(Dataset):
             torch.tensor(sample['sequence']),
             torch.tensor(sample['station_idx'], dtype=torch.long),
             torch.tensor(sample['region_idx'], dtype=torch.long),
-            torch.tensor(sample['province_idx'], dtype=torch.long), # [MỚI] Trả về Province
             torch.tensor(sample['target'])
         )
 
 def get_dataloaders(config):
-    num_stations, num_regions, num_provinces = get_counts_from_paths(
+    num_stations, num_regions = get_counts_from_paths(
         [config['train_dir'], config['val_dir'], config['test_dir']]
     )
-    
-    print(f"Detected: {num_stations} stations, {num_regions} regions, {num_provinces} provinces.")
+    print(f"Metadata: {num_stations} stations, {num_regions} regions.")
 
-    train_ds = AQITripleEmbeddingDataset(config['train_dir'], config['sequence_length'])
-    val_ds = AQITripleEmbeddingDataset(config['val_dir'], config['sequence_length'])
-    test_ds = AQITripleEmbeddingDataset(config['test_dir'], config['sequence_length'])
+    train_ds = AQIDualEmbeddingDataset(config['train_dir'], config['sequence_length'])
+    val_ds = AQIDualEmbeddingDataset(config['val_dir'], config['sequence_length'])
+    test_ds = AQIDualEmbeddingDataset(config['test_dir'], config['sequence_length'])
     
     train_loader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=config['batch_size'], shuffle=False)
     test_loader = DataLoader(test_ds, batch_size=config['batch_size'], shuffle=False)
     
-    print(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}, Test samples: {len(test_ds)}")
-    
     info = {
         'num_stations': num_stations,
         'num_regions': num_regions,
-        'num_provinces': num_provinces, # [MỚI]
         'input_dim': train_ds.input_dim
     }
-    
     return train_loader, val_loader, test_loader, info

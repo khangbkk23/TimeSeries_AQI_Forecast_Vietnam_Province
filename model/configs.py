@@ -24,16 +24,16 @@ class ModelConfig:
     embedding_dim_province = 5  
     
     # Model structure
-    hidden_dim = 128
+    hidden_dim = 64
     num_layers = 2
     bidirectional = True
     
     dropout = 0.2               
-    batch_size = 64
+    batch_size = 32
     learning_rate = 0.001
     
     epochs = 100
-    patience = 10
+    patience = 20
     
     @property
     def device(self):
