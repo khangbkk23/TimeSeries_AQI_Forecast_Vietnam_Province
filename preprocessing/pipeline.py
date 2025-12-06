@@ -4,9 +4,63 @@ import numpy as np
 import os
 import json
 import joblib
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 
+# 1. HÀM XỬ LÝ MAP TÊN TỈNH
+def get_province_from_filename(filename):
+    parts = filename.split('_')
+    code = parts[0]
+    
+    mapping = {
+        'BG': 'Bac Giang',
+        'DN': 'Da Nang',
+        'GL': 'Gia Lai',
+        'HN': 'Ha Noi',
+        'HY': 'Hung Yen',
+        'LD': 'Lam Dong',
+        'ND': 'Nam Dinh',
+        'PT': 'Phu Tho',
+        'TB': 'Thai Binh',
+        'TN': 'Thai Nguyen',
+        'TV': 'Tra Vinh',
+    }
+
+    if code == 'BD':
+        if 'BinhDuong' in filename:
+            return 'Binh Duong'
+        else:
+            return 'Binh Dinh'
+    
+    if code == 'QN':
+        return 'Quang Nam'
+
+    return mapping.get(code, 'Unknown')
+
+def update_dataset_info(info_file_path):
+    with open(info_file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    updated = False
+    for key, info in data.items():
+        filename = info.get('file_name', '')
+        if filename and ('province' not in info or info['province'] == 'Unknown'):
+            province = get_province_from_filename(filename)
+            info['province'] = province
+            updated = True
+            print(f"Update: {filename} -> Province: {province}")
+
+    if updated:
+        with open(info_file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        print("-> Đã cập nhật xong dataset_info.json.")
+    else:
+        print("-> Dataset info đã có đủ thông tin province.")
+
+
+# 2. DATA LOADING & CLEANING
 def load_and_concat_data(info_file_path, data_directory):
+    update_dataset_info(info_file_path)
+
     with open(info_file_path, 'r', encoding='utf-8-sig') as f:
         dataset_info = json.load(f)
 
@@ -14,12 +68,20 @@ def load_and_concat_data(info_file_path, data_directory):
     for key, info in dataset_info.items():
         file_name = info.get('file_name')
         region = info.get('region')
+        province = info.get('province', 'Unknown')
+        
         if not file_name:
             continue
             
         file_path = os.path.join(data_directory, file_name)
+        if not os.path.exists(file_path):
+            print(f"Warning: File not found {file_path}")
+            continue
+
         df = pd.read_csv(file_path, sep=',')
         df['region'] = region
+        df['province'] = province
+        
         station_id = '_'.join(file_name.split('_')[:-1]) 
         df['station_id'] = station_id
         all_dfs.append(df)
@@ -36,6 +98,8 @@ def clean_data(df):
         df[col] = pd.to_numeric(df[col], errors='coerce')
     return df
 
+
+# 3. FEATURE ENGINEERING
 def add_temporal_features(df):
     df['hour'] = df['Date'].dt.hour
     df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
@@ -69,6 +133,35 @@ def add_rolling_features(df, windows=[7]):
                 )
     return df
 
+# 4. ENCODING CATEGORICAL FEATURES
+def encode_categorical_features(train_df, val_df, test_df, save_paths):
+    def fit_transform_all(col_name, encoder_path):
+        encoder = LabelEncoder()
+        all_values = pd.concat([train_df[col_name], val_df[col_name], test_df[col_name]]).unique()
+        encoder.fit(all_values)
+        
+        # Transform
+        train_df[f'{col_name}_encoded'] = encoder.transform(train_df[col_name])
+        val_df[f'{col_name}_encoded'] = encoder.transform(val_df[col_name])
+        test_df[f'{col_name}_encoded'] = encoder.transform(test_df[col_name])
+        
+        # Save encoder
+        os.makedirs(os.path.dirname(encoder_path), exist_ok=True)
+        joblib.dump(encoder, encoder_path)
+        return train_df, val_df, test_df
+
+    # 1. Encode region
+    train_df, val_df, test_df = fit_transform_all('region', save_paths['region_encoder_path'])
+    
+    # 2. Encode station
+    train_df, val_df, test_df = fit_transform_all('station_id', save_paths['station_encoder_path'])
+    
+    # 3. Encode province
+    train_df, val_df, test_df = fit_transform_all('province', save_paths['province_encoder_path'])
+    
+    return train_df, val_df, test_df
+
+# 5. SPLITTING & IMPUTING & NORMALIZING
 def train_val_test_split_temporal(df, val_cutoff_date_str, test_cutoff_date_str):
     val_cutoff = pd.to_datetime(val_cutoff_date_str)
     test_cutoff = pd.to_datetime(test_cutoff_date_str)
@@ -76,6 +169,11 @@ def train_val_test_split_temporal(df, val_cutoff_date_str, test_cutoff_date_str)
     train_df = df[df['Date'] < val_cutoff].copy()
     val_df = df[(df['Date'] >= val_cutoff) & (df['Date'] < test_cutoff)].copy()
     test_df = df[df['Date'] >= test_cutoff].copy()
+    
+    print(f"--- Split Statistics ---")
+    print(f"Train size: {len(train_df)} | End: {train_df['Date'].max()}")
+    print(f"Val size:   {len(val_df)}   | Start: {val_df['Date'].min()} | End: {val_df['Date'].max()}")
+    print(f"Test size:  {len(test_df)}  | Start: {test_df['Date'].min()}")
     
     return train_df, val_df, test_df
 
@@ -85,6 +183,7 @@ def impute_data(train_df, val_df, test_df, features_to_impute):
     for col in features_to_impute:
         train_df[col] = train_df.groupby('station_id')[col].ffill()
         train_df[col] = train_df.groupby('station_id')[col].bfill()
+        
         median_val = train_df[col].median()
         train_df[col] = train_df[col].fillna(median_val)
         imputation_values[col] = median_val
@@ -107,23 +206,25 @@ def normalize_data(train_df, val_df, test_df, features_to_scale):
     
     return train_df, val_df, test_df, scaler
 
+# 6. MAIN PIPELINE
 def full_preprocessing_pipeline(combined_df, val_cutoff, test_cutoff, save_paths):
     
-    # Clean data
+    print("1. Cleaning data...")
     combined_df = clean_data(combined_df)
-    # Add temporal features
+    
+    print("2. Adding temporal features...")
     combined_df = add_temporal_features(combined_df)
     
-    # Add lag and rolling features
+    print("3. Adding rolling features...")
     combined_df = add_lag_features(combined_df, lags=[1, 7])
     combined_df = add_rolling_features(combined_df, windows=[7])
     
-    # Split
+    print("4. Splitting data...")
     train_df, val_df, test_df = train_val_test_split_temporal(
         combined_df, val_cutoff, test_cutoff
     )
     
-    # Impute
+    print("5. Imputing missing values...")
     pollutant_features = ['CO', 'NO2', 'PM-10', 'PM-2-5', 'SO2', 'VN_AQI']
     lag_features = [col for col in train_df.columns if '_lag_' in col or '_roll_' in col]
     features_to_impute = pollutant_features + lag_features
@@ -132,7 +233,15 @@ def full_preprocessing_pipeline(combined_df, val_cutoff, test_cutoff, save_paths
         train_df, val_df, test_df, features_to_impute
     )
     
-    # Normalize
+    print("6. Encoding categorical features (Region, Station, Province)...")
+
+    save_paths['region_encoder_path'] = './model/encoders/region_encoder.pkl'
+    save_paths['station_encoder_path'] = './model/encoders/station_encoder.pkl'
+    save_paths['province_encoder_path'] = './model/encoders/province_encoder.pkl'
+    
+    train_df, val_df, test_df = encode_categorical_features(train_df, val_df, test_df, save_paths)
+    
+    print("7. Normalizing data...")
     temporal_cols = [
         'hour', 'day_of_week', 'month', 'quarter', 
         'hour_sin', 'hour_cos',
@@ -145,7 +254,7 @@ def full_preprocessing_pipeline(combined_df, val_cutoff, test_cutoff, save_paths
         train_df, val_df, test_df, features_to_scale
     )
     
-    # Save
+    print("8. Saving data...")
     all_stations = combined_df['station_id'].unique()
     data_splits = {
         'train': (train_df, save_paths['train_dir']),
@@ -163,21 +272,29 @@ def full_preprocessing_pipeline(combined_df, val_cutoff, test_cutoff, save_paths
     
     os.makedirs(os.path.dirname(save_paths['scaler_path']), exist_ok=True)
     joblib.dump(global_scaler, save_paths['scaler_path'])
+    print("Done!")
 
-# Run
-info_file_path = "./data/origin/dataset_info.json"
-data_directory = "./data/origin/"
+if __name__ == "__main__":
 
-save_paths = {
-    'train_dir': './data/train/',
-    'val_dir': './data/validation/',
-    'test_dir': './data/test/',
-    'scaler_path': './normalized_data/global_scaler.pkl'
-}
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_script_dir)
 
-VAL_CUTOFF_DATE = '2025-04-01'
-TEST_CUTOFF_DATE = '2025-07-01'
+    info_file_path = os.path.join(project_root, "data", "origin", "dataset_info.json")
+    data_directory = os.path.join(project_root, "data", "origin")
 
-all_data_df = load_and_concat_data(info_file_path, data_directory)
-if all_data_df is not None:
-    full_preprocessing_pipeline(all_data_df, VAL_CUTOFF_DATE, TEST_CUTOFF_DATE, save_paths)
+    save_paths = {
+        'train_dir': os.path.join(project_root, 'data', 'train'),
+        'val_dir': os.path.join(project_root, 'data', 'validation'),
+        'test_dir': os.path.join(project_root, 'data', 'test'),
+        'scaler_path': os.path.join(project_root, 'normalized_data', 'global_scaler.pkl'),
+        
+        'region_encoder_path': os.path.join(project_root, 'model', 'encoders', 'region_encoder.pkl'),
+        'station_encoder_path': os.path.join(project_root, 'model', 'encoders', 'station_encoder.pkl'),
+        'province_encoder_path': os.path.join(project_root, 'model', 'encoders', 'province_encoder.pkl')
+    }
+
+    VAL_CUTOFF_DATE = '2025-04-01'
+    TEST_CUTOFF_DATE = '2025-08-01'
+    all_data_df = load_and_concat_data(info_file_path, data_directory)
+    if all_data_df is not None:
+        full_preprocessing_pipeline(all_data_df, VAL_CUTOFF_DATE, TEST_CUTOFF_DATE, save_paths)
