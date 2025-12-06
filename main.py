@@ -3,12 +3,24 @@ import torch.nn as nn
 import torch.optim as optim
 import pickle
 import os
+import random
 import numpy as np
 from tqdm import tqdm
+
 from model.data_utils import get_dataloaders
-from model.model import DualEmbeddingBiLSTM, WeightedMSELoss
+from model.model import TripleEmbeddingBiLSTM, WeightedMSELoss 
 from model.configs import cfg
 from model.visualize import plot_learning_curves, plot_prediction_comparison
+
+def seed_everything(seed=42):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def warmup_lr_scheduler(epoch, warmup_epochs, warmup_start_lr, base_lr):
     if epoch < warmup_epochs:
@@ -51,10 +63,15 @@ def evaluate_test_set(model, test_loader, device):
     actuals = []
     
     with torch.no_grad():
-        for seqs, s_idxs, r_idxs, targets in test_loader:
-            seqs, s_idxs, r_idxs, targets = seqs.to(device), s_idxs.to(device), r_idxs.to(device), targets.to(device)
+        for seqs, s_idxs, r_idxs, p_idxs, targets in test_loader:
+            seqs = seqs.to(device)
+            s_idxs = s_idxs.to(device)
+            r_idxs = r_idxs.to(device)
+            p_idxs = p_idxs.to(device)
+            targets = targets.to(device)
             
-            preds = model(seqs, s_idxs, r_idxs)
+            preds = model(seqs, s_idxs, r_idxs, p_idxs)
+            
             batch_mse = criterion_mse(preds, targets)
             batch_mae = criterion_mae(preds, targets)
             
@@ -77,10 +94,13 @@ def evaluate_test_set(model, test_loader, device):
     return actuals, predictions
 
 def run_training():
+    seed_everything(42) 
+
     warmup_epochs = getattr(cfg, 'warmup_epochs', 5)
     warmup_start_lr = getattr(cfg, 'warmup_start_lr', 1e-5)
     grad_clip = getattr(cfg, 'grad_clip', 1.0)
-    weight_decay = getattr(cfg, 'weight_decay', 1e-3)
+    # Lấy weight_decay từ cfg nếu có, không thì mặc định 1e-4 (mức tốt cho mô hình này)
+    weight_decay = getattr(cfg, 'weight_decay', 1e-4) 
     
     print(f"Device: {cfg.device}")
     print(f"Config: Epochs={cfg.epochs}, Batch={cfg.batch_size}, LR={cfg.learning_rate}")
@@ -91,25 +111,29 @@ def run_training():
         'val_dir': cfg.val_dir, 'test_dir': cfg.test_dir,
         'sequence_length': cfg.sequence_length, 'batch_size': cfg.batch_size
     }
-    
     train_loader, val_loader, test_loader, data_info = get_dataloaders(config_dict)
     
     if data_info['input_dim'] == 0:
         print("Lỗi: Không tìm thấy dữ liệu.")
         return None, None, [], [], 0, 0, [], []
 
-    model = DualEmbeddingBiLSTM(
+    model = TripleEmbeddingBiLSTM(
         config=cfg,
         num_stations=data_info['num_stations'],
         num_regions=data_info['num_regions'],
+        num_provinces=data_info['num_provinces'],
         input_dim=data_info['input_dim']
     ).to(cfg.device)
     
-    # criterion = WeightedMSELoss(high_val_weight=2.5, threshold=0.5)
     criterion = nn.HuberLoss(delta=1.0)
     
     optimizer = optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=weight_decay)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min', 
+        factor=cfg.scheduler_factor, 
+        patience=cfg.scheduler_patience
+    )
     
     best_val_loss = float('inf')
     best_epoch = 0
@@ -127,11 +151,17 @@ def run_training():
         train_losses = []
         train_bar = tqdm(train_loader, desc=f"Ep {epoch+1}/{cfg.epochs}", leave=False)
         
-        for seqs, s_idxs, r_idxs, targets in train_bar:
-            seqs, s_idxs, r_idxs, targets = seqs.to(cfg.device), s_idxs.to(cfg.device), r_idxs.to(cfg.device), targets.to(cfg.device)
+        for seqs, s_idxs, r_idxs, p_idxs, targets in train_bar:
+            seqs = seqs.to(cfg.device)
+            s_idxs = s_idxs.to(cfg.device)
+            r_idxs = r_idxs.to(cfg.device)
+            p_idxs = p_idxs.to(cfg.device)
+            targets = targets.to(cfg.device)
             
             optimizer.zero_grad()
-            predictions = model(seqs, s_idxs, r_idxs)
+            
+            predictions = model(seqs, s_idxs, r_idxs, p_idxs)
+            
             loss = criterion(predictions, targets)
             loss.backward()
             
@@ -150,16 +180,18 @@ def run_training():
         val_std_mse_sum = 0
         
         with torch.no_grad():
-            for seqs, s_idxs, r_idxs, targets in val_loader:
-                seqs, s_idxs, r_idxs, targets = seqs.to(cfg.device), s_idxs.to(cfg.device), r_idxs.to(cfg.device), targets.to(cfg.device)
+            for seqs, s_idxs, r_idxs, p_idxs, targets in val_loader:
+                seqs = seqs.to(cfg.device)
+                s_idxs = s_idxs.to(cfg.device)
+                r_idxs = r_idxs.to(cfg.device)
+                p_idxs = p_idxs.to(cfg.device)
+                targets = targets.to(cfg.device)
                 
-                preds = model(seqs, s_idxs, r_idxs)
+                preds = model(seqs, s_idxs, r_idxs, p_idxs)
                 
-                # 1. Tính Weighted loss
                 loss_w = criterion(preds, targets)
                 val_weighted_loss_sum += loss_w.item()
                 
-                # 2. Tính Standard MSE
                 loss_mse = torch.nn.functional.mse_loss(preds, targets)
                 val_std_mse_sum += loss_mse.item()
         
@@ -173,7 +205,8 @@ def run_training():
 
         train_loss_history.append(avg_train_loss)
         val_loss_history.append(avg_val_weighted)
-        print(f"Ep {epoch+1:03d} | Train: {avg_train_loss:.4f} | Val W-Loss: {avg_val_weighted:.4f} | Val MSE: {avg_val_std_mse:.4f} | LR: {current_lr:.6f}", end="")
+        
+        print(f"Ep {epoch+1:03d} | Train: {avg_train_loss:.4f} | Val Loss: {avg_val_weighted:.4f} | Val MSE: {avg_val_std_mse:.4f} | LR: {current_lr:.6f}", end="")
         
         if avg_val_weighted < best_val_loss:
             best_val_loss = avg_val_weighted
@@ -189,6 +222,7 @@ def run_training():
                 break
                 
     print(f"Model saved: {cfg.save_model_path}")
+    
     model.load_state_dict(torch.load(cfg.save_model_path))
     test_actuals, test_preds = evaluate_test_set(model, test_loader, cfg.device)
     
@@ -201,7 +235,6 @@ if __name__ == "__main__":
      t_hist, v_hist, best_ep, best_loss, 
      test_act, test_pred) = run_training()
     
-    # 1. Vẽ biểu đồ Training History & Test Result
     if t_hist and len(t_hist) > 0:
         print_final_report(best_loss, best_ep, cfg.epochs)
         save_results_to_pkl(t_hist, v_hist, best_ep, best_loss)
@@ -212,7 +245,7 @@ if __name__ == "__main__":
             plot_prediction_comparison(
                 torch.tensor(test_act), 
                 torch.tensor(test_pred), 
-                station_name="FINAL_TEST_RESULT"
+                station_name="FINAL_TEST_RESULT_PROVINCE"
             )
             
     

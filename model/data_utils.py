@@ -1,74 +1,76 @@
-import os, shutil
-import torch
-from torch.utils.data import Dataset, DataLoader
-import pandas as pd
-import numpy as np
+import os
 import glob
 import json
+import pandas as pd
+import numpy as np
+import torch
+from torch.utils.data import Dataset, DataLoader
 
-def create_mappings(info_path):
-    with open(info_path, 'r', encoding='utf-8-sig') as f:
-        dataset_info = json.load(f)
-
-    station_to_idx = {}
-    region_to_idx = {'north': 0, 'middle': 1, 'south': 2}
-    station_region_lookup = {}
-
-    for entry in dataset_info.values():
-        file_name = entry.get('file_name')
-        region_str = entry.get('region')
+def get_counts_from_paths(data_dirs):
+    max_s, max_r, max_p = 0, 0, 0
+    
+    all_files = []
+    for d in data_dirs:
+        all_files.extend(glob.glob(os.path.join(d, "*_processed.csv")))
         
-        if not file_name:
+    for f in all_files:
+        try:
+            df = pd.read_csv(f, nrows=1)
+            if 'station_id_encoded' in df.columns:
+                max_s = max(max_s, int(df['station_id_encoded'].iloc[0]))
+            if 'region_encoded' in df.columns:
+                max_r = max(max_r, int(df['region_encoded'].iloc[0]))
+            if 'province_encoded' in df.columns:
+                max_p = max(max_p, int(df['province_encoded'].iloc[0]))
+        except Exception as e:
             continue
-        station_id_str = '_'.join(file_name.split('_')[:-1])
-        
-        if station_id_str not in station_to_idx:
-            s_idx = len(station_to_idx)
-            station_to_idx[station_id_str] = s_idx
-            station_region_lookup[s_idx] = region_to_idx.get(region_str, 0)
             
-    return station_to_idx, region_to_idx, station_region_lookup
+    return max_s + 1, max_r + 1, max_p + 1
 
-class AQIDualEmbeddingDataset(Dataset):
-    def __init__(self, data_dir, station_map, station_region_lookup, sequence_length=14, target_col='VN_AQI'):
+class AQITripleEmbeddingDataset(Dataset):
+    def __init__(self, data_dir, sequence_length=14, target_col='VN_AQI'):
         self.sequence_length = sequence_length
         self.samples = []
         
         file_paths = glob.glob(os.path.join(data_dir, "*_processed.csv"))
         
         if not file_paths:
-            print(f" Không tìm thấy file csv nào trong {data_dir}")
+            print(f"Không tìm thấy file csv nào trong {data_dir}")
 
         for file_path in file_paths:
-            filename = os.path.basename(file_path)
-            station_id_str = filename.replace('_processed.csv', '')
-            
-            if station_id_str not in station_map:
-                continue 
+            try:
+                df = pd.read_csv(file_path)
                 
-            s_idx = station_map[station_id_str]
-            r_idx = station_region_lookup[s_idx]
-            
-            df = pd.read_csv(file_path)
-            
-            exclude_cols = ['Date', 'station_id', 'region', target_col]
-            feature_cols = [c for c in df.columns if c not in exclude_cols]
-            
-            features = df[feature_cols].values.astype(np.float32)
-            targets = df[target_col].values.astype(np.float32)
-            
-            num_records = len(df)
-            if num_records > sequence_length:
-                for i in range(num_records - sequence_length):
-                    seq_data = features[i : i + sequence_length]
-                    target_val = targets[i + sequence_length]
-                    
-                    self.samples.append({
-                        'sequence': seq_data,
-                        'station_idx': s_idx,
-                        'region_idx': r_idx,
-                        'target': target_val
-                    })
+
+                s_idx = int(df['station_id_encoded'].iloc[0])
+                r_idx = int(df['region_encoded'].iloc[0])
+                p_idx = int(df['province_encoded'].iloc[0])
+                
+                exclude_cols = ['Date', 'station_id', 'region', 'province', 
+                                'station_id_encoded', 'region_encoded', 'province_encoded', 
+                                target_col]
+                
+                feature_cols = [c for c in df.columns if c not in exclude_cols]
+                
+                features = df[feature_cols].values.astype(np.float32)
+                targets = df[target_col].values.astype(np.float32)
+                
+                num_records = len(df)
+                if num_records > sequence_length:
+                    for i in range(num_records - sequence_length):
+                        seq_data = features[i : i + sequence_length]
+                        target_val = targets[i + sequence_length]
+                        
+                        self.samples.append({
+                            'sequence': seq_data,
+                            'station_idx': s_idx,
+                            'region_idx': r_idx,
+                            'province_idx': p_idx, # [MỚI]
+                            'target': target_val
+                        })
+            except Exception as e:
+                print(f"Lỗi đọc file {file_path}: {e}")
+                continue
         
         if len(self.samples) > 0:
             self.input_dim = self.samples[0]['sequence'].shape[1]
@@ -84,25 +86,31 @@ class AQIDualEmbeddingDataset(Dataset):
             torch.tensor(sample['sequence']),
             torch.tensor(sample['station_idx'], dtype=torch.long),
             torch.tensor(sample['region_idx'], dtype=torch.long),
+            torch.tensor(sample['province_idx'], dtype=torch.long), # [MỚI] Trả về Province
             torch.tensor(sample['target'])
         )
-        
+
 def get_dataloaders(config):
-    s_map, r_map, s_r_lookup = create_mappings(config['info_path'])
+    num_stations, num_regions, num_provinces = get_counts_from_paths(
+        [config['train_dir'], config['val_dir'], config['test_dir']]
+    )
     
-    train_ds = AQIDualEmbeddingDataset(config['train_dir'], s_map, s_r_lookup, config['sequence_length'])
-    val_ds = AQIDualEmbeddingDataset(config['val_dir'], s_map, s_r_lookup, config['sequence_length'])
-    test_ds = AQIDualEmbeddingDataset(config['test_dir'], s_map, s_r_lookup, config['sequence_length'])
+    print(f"Detected: {num_stations} stations, {num_regions} regions, {num_provinces} provinces.")
+
+    train_ds = AQITripleEmbeddingDataset(config['train_dir'], config['sequence_length'])
+    val_ds = AQITripleEmbeddingDataset(config['val_dir'], config['sequence_length'])
+    test_ds = AQITripleEmbeddingDataset(config['test_dir'], config['sequence_length'])
     
     train_loader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=config['batch_size'], shuffle=False)
     test_loader = DataLoader(test_ds, batch_size=config['batch_size'], shuffle=False)
     
-    print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}, Test size: {len(test_ds)}")
+    print(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}, Test samples: {len(test_ds)}")
     
     info = {
-        'num_stations': len(s_map),
-        'num_regions': len(r_map),
+        'num_stations': num_stations,
+        'num_regions': num_regions,
+        'num_provinces': num_provinces, # [MỚI]
         'input_dim': train_ds.input_dim
     }
     

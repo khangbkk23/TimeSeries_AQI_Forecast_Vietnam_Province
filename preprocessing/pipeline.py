@@ -52,9 +52,9 @@ def update_dataset_info(info_file_path):
     if updated:
         with open(info_file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
-        print("-> Đã cập nhật xong dataset_info.json.")
+        print("Đã cập nhật xong dataset_info.json.")
     else:
-        print("-> Dataset info đã có đủ thông tin province.")
+        print("Dataset info đã có đủ thông tin province.")
 
 
 # 2. DATA LOADING & CLEANING
