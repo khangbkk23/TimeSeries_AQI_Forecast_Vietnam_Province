@@ -3,6 +3,7 @@ import glob
 import os
 from sklearn.preprocessing import MinMaxScaler
 import numpy as np
+import joblib
 
 # Cấu hình các cột đặc trưng (Feature)
 FEATURES = ['CO', 'NO2', 'PM-10', 'PM-2-5', 'SO2'] 
@@ -72,47 +73,104 @@ def load_train_val_test(root_folder):
     
     return df_train, df_val, df_test
 
-def prepare_data(df_train, df_val, df_test):
+def prepare_data(df_train, df_val, df_test): 
     """
-    Đầu vào: Dữ liệu đã Standard Scaled (mean=0, std=1).
-    Nhiệm vụ: Chỉ xử lý ngoại lai trên tập Train.
-    Đầu ra: Numpy arrays (X_train, X_val, X_test) và None (thay cho scaler).
+    Input: Dữ liệu đã Standard Scaled.
+    Output: Dữ liệu đã lọc ngoại lai và MinMax Scaled [0, 1].
     """
+    std_scaler = joblib.load('./normalized_data/global_scaler.pkl')
 
-    # 1. Copy dữ liệu để không ảnh hưởng dataframe gốc
+    # 1. Copy dữ liệu train để xử lý
     df_train_clean = df_train.copy()
-
-    # --- BƯỚC 1: XỬ LÝ NGOẠI LAI (Chỉ áp dụng trên tập Train) ---
+    
+    # --- BƯỚC 1: LỌC NGOẠI LAI TRÊN TẬP TRAIN (Dựa trên giá trị đã Standardized) ---
     if not df_train_clean.empty:
         # Tính IQR
-        Q1 = df_train_clean[FEATURES].quantile(0.25)
-        Q3 = df_train_clean[FEATURES].quantile(0.75)
+        Q1 = df_train_clean.quantile(0.25)
+        Q3 = df_train_clean.quantile(0.75)
         IQR = Q3 - Q1
-
-        # Xác định cận dưới và trên
+        
         lower_bound = Q1 - 1.5 * IQR
         upper_bound = Q3 + 1.5 * IQR
-
-        # Lọc bỏ các dòng chứa ngoại lai
-        # Vì dữ liệu đã Standard Scaled, ngoại lai thường là các giá trị > 3 hoặc < -3 (tùy phân phối)
-        condition = ~((df_train_clean[FEATURES] < lower_bound) | (df_train_clean[FEATURES] > upper_bound)).any(axis=1)
+        
+        # Lọc bỏ dòng ngoại lai
+        condition = ~((df_train_clean < lower_bound) | (df_train_clean > upper_bound)).any(axis=1)
         
         n_before = len(df_train_clean)
         df_train_clean = df_train_clean[condition]
-        n_after = len(df_train_clean)
         
-        print(f"Đã loại bỏ {n_before - n_after} dòng ngoại lai trên tập Train.")
-    else:
-        raise ValueError("Tập Train rỗng!")
+        print(f"Đã loại bỏ {n_before - len(df_train_clean)} dòng ngoại lai (dựa trên phân phối Standardized).")
 
-    # --- BƯỚC 2: CHUYỂN ĐỔI SANG NUMPY ARRAY ---
-    # Không scale nữa, chỉ lấy values
+    # --- BƯỚC 2: MIN-MAX SCALING ---
+    print(" Đang thực hiện MinMaxScaler [0, 1]...")
+    minmax_scaler = MinMaxScaler()
     
-    X_train = df_train_clean[FEATURES].values
+    # Fit trên tập train sạch
+    X_train = minmax_scaler.fit_transform(df_train_clean)
     
-    # Val và Test giữ nguyên (kể cả ngoại lai) để đánh giá thực tế
-    X_val = df_val[FEATURES].values if not df_val.empty else None
-    X_test = df_test[FEATURES].values if not df_test.empty else None
+    # Transform Val/Test (nếu có dữ liệu)
+    X_val = minmax_scaler.transform(df_val) if not df_val.empty else None
+    X_test = minmax_scaler.transform(df_test) if not df_test.empty else None
+    X_train_raw = inverse_double_step(X_train, minmax_scaler, std_scaler, FEATURES) 
+    X_val_raw = inverse_double_step(X_val, minmax_scaler, std_scaler, FEATURES) 
+    X_test_raw = inverse_double_step(X_test, minmax_scaler, std_scaler, FEATURES) 
+    joblib.dump(minmax_scaler, 'minmax_scaler.pkl')
 
-    # Trả về None ở vị trí cuối cùng để thay thế cho 'scaler' (giữ code gọi hàm không bị lỗi unpack)
-    return X_train, X_val, X_test, None
+    return X_train_raw, X_val_raw, X_test_raw, minmax_scaler
+
+def inverse_double_step(data_minmax, mm_scaler, std_scaler, feature_names=FEATURES):
+    """
+    Hàm helper để thực hiện 2 bước inverse:
+    MinMax [0,1] -> Standard [Z-score] -> Raw [Gốc]
+    Đặc biệt: Xử lý vụ lệch cột (5 cột vs 14 cột).
+    """
+    # 1. Inverse MinMax (Dễ, vì mm_scaler vừa fit trên đúng 5 cột này)
+    data_std = mm_scaler.inverse_transform(data_minmax)
+    
+    # 2. Inverse Standard (Khó, vì std_scaler cũ đòi 14 cột)
+    if std_scaler is None:
+        return data_std # Nếu không có scaler cũ thì trả về dạng Z-score
+    
+    # Lấy danh sách feature mà std_scaler cũ mong đợi
+    # (Nếu scaler cũ không lưu feature_names_in_, bạn phải tự liệt kê list 14 cột cũ)
+    try:
+        expected_cols = std_scaler.feature_names_in_
+        n_expected = len(expected_cols)
+    except:
+        # Fallback nếu sklearn phiên bản cũ
+        n_expected = std_scaler.mean_.shape[0]
+        expected_cols = [f"Col_{i}" for i in range(n_expected)]
+
+    # Tạo ma trận giả full số 0 với kích thước (N_samples, 14)
+    n_samples = data_std.shape[0]
+    dummy_matrix = np.zeros((n_samples, n_expected))
+    
+    # Điền giá trị của 5 cột hiện tại vào đúng vị trí tương ứng trong ma trận giả
+    # Cách đơn giản: Nếu bạn biết tên cột khớp nhau
+    mapped_indices = []
+    current_col_indices = []
+    
+    for i, col in enumerate(feature_names):
+        # Tìm xem cột hiện tại (ví dụ 'CO') nằm ở vị trí nào trong scaler cũ
+        for j, exp_col in enumerate(expected_cols):
+            if col == exp_col:
+                dummy_matrix[:, j] = data_std[:, i]
+                mapped_indices.append(j)
+                current_col_indices.append(i)
+                break
+    
+    # Nếu không tìm thấy tên cột khớp (do tên khác nhau), code sẽ trả về Z-score
+    if not mapped_indices:
+        print("Cảnh báo: Tên cột không khớp với Scaler cũ. Không thể Inverse về Raw.")
+        return data_std
+
+    # Inverse Transform trên ma trận giả (14 cột)
+    raw_dummy = std_scaler.inverse_transform(dummy_matrix)
+    
+    # Trích xuất lại đúng 5 cột chúng ta cần
+    data_raw = np.zeros_like(data_std)
+    for k, original_idx in enumerate(current_col_indices):
+        target_idx = mapped_indices[k]
+        data_raw[:, original_idx] = raw_dummy[:, target_idx]
+        
+    return data_raw

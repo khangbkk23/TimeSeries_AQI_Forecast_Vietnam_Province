@@ -16,7 +16,7 @@ def plot_centroids_heatmap(model, scaler, feature_names):
     """Vẽ Heatmap giá trị trung bình của các cụm."""
     # Lấy tâm cụm (đang ở dạng scaled)
     centroids_original = model.cluster_centers_
-
+    
     # Tạo DataFrame để vẽ
     df_centroids = pd.DataFrame(centroids_original, columns=feature_names)
     
