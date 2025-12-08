@@ -3,11 +3,12 @@ from dataclasses import dataclass
 
 @dataclass
 class ModelConfig:
-    info_path = './data/origin/dataset_info.json'
-    train_dir = './data/train/'
-    val_dir = './data/validation/'
-    test_dir = './data/test/'
-    save_model_path = 'best_aqi_model_province.pth'
+    info_path = './ai_engine/data/origin/dataset_info.json'
+    train_dir = './ai_engine/data/train/'
+    val_dir   = './ai_engine/data/validation/'
+    test_dir  = './ai_engine/data/test/'
+    
+    save_model_path = './ai_engine/weights/best_aqi_model_dual.pth'
 
     scheduler_factor = 0.5
     scheduler_patience = 6
@@ -33,7 +34,7 @@ class ModelConfig:
     learning_rate = 0.001
     
     epochs = 100
-    patience = 20
+    patience = 25
     
     @property
     def device(self):
