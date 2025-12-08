@@ -13,12 +13,12 @@ FEATURES = ['CO', 'NO2', 'PM-10', 'PM-2-5', 'SO2']
 # Ví dụ: Nếu cụm 0 có chỉ số thấp nhất -> Là "An toàn"
 # Nếu cụm 2 có chỉ số cao nhất -> Là "Nguy hại"
 CLUSTER_LABELS = {
-    0: {"name": "Tím", "color": "purple", "msg": "Không khí chất lượng rất xấu, chỉ nên ra đường nếu cần thiết."},
+    0: {"name": "Rất xấu", "color": "purple", "msg": "Không khí chất lượng rất xấu, chỉ nên ra đường nếu cần thiết."},
     1: {"name": "Tốt", "color": "green", "msg": "Chất lượng không khí tốt!"},
     2: {"name": "Nguy hại", "color": "brown", "msg": "Cảnh báo sức khỏe khẩn cấp!"},
     3: {"name": "Trung bình", "color": "yellow", "msg": "Chất lượng không khí trung bình."},
-    4: {"name": "Đỏ", "color": "red", "msg": "Không khí xấu, hạn chế ra đường nếu không cần thiết."},
-    5: {"name": "Da cam", "color": "orange", "msg": "Không khí chất lượng kém."}
+    4: {"name": "Xấu", "color": "red", "msg": "Không khí xấu, hạn chế ra đường nếu không cần thiết."},
+    5: {"name": "Kém", "color": "orange", "msg": "Không khí chất lượng kém."}
 }
 
 # --- LOAD MODEL ---
