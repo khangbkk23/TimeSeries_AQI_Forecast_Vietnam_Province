@@ -7,10 +7,10 @@ import random
 import numpy as np
 from tqdm import tqdm
 
-from model.data_utils import get_dataloaders
-from model.model import DualEmbeddingBiLSTM, WeightedMSELoss 
-from model.configs import cfg
-from model.visualize import plot_learning_curves, plot_prediction_comparison
+from lstm_model.data_utils import get_dataloaders
+from lstm_model.model import DualEmbeddingBiLSTM, WeightedMSELoss 
+from lstm_model.configs import cfg
+from lstm_model.visualize import plot_learning_curves, plot_prediction_comparison
 
 def seed_everything(seed=42):
     random.seed(seed)

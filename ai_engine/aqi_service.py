@@ -5,8 +5,8 @@ import pandas as pd
 import numpy as np
 import os
 from datetime import timedelta
-from model.model import DualEmbeddingBiLSTM
-from model.configs import cfg
+from lstm_model.model import DualEmbeddingBiLSTM
+from lstm_model.configs import cfg
 
 class AQIPredictor:
     def __init__(self, model_path='./ai_engine/weights/best_aqi_model_dual.pth'):
