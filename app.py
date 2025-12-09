@@ -114,7 +114,7 @@ def get_history_data_for_ai(province_name):
             break
             
     if not target_file:
-        raise ValueError(f"Không tìm thấy dữ liệu cho tỉnh {province_name}")
+        raise ValueError(f"Không tìm thấy dữ liệu cho địa phương: {province_name}")
 
     full_path = os.path.join(data_dir, target_file)
     if not os.path.exists(full_path):
