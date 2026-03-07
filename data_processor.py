@@ -4,6 +4,23 @@ import json
 import matplotlib.pyplot as plt
 import torch
 
+"""
+    "0": {
+        "file_name": "HN_NguyenVanCu_28560877461938780203765592307.csv",
+        "region": "north",
+        "n_records": 30,
+        "header": [
+            "Date",
+            "VN_AQI",
+            "CO",
+            "NO2",
+            "PM-10",
+            "PM-2-5",
+            "SO2"
+        ]
+    }
+"""
+
 def drop_col(data_dir):
     with open(data_dir+'dataset_info.json', "r", encoding='utf-8') as json_info:
         info = json.load(json_info)
@@ -14,6 +31,7 @@ def drop_col(data_dir):
         # df = df.T.drop_duplicates().T
         df = df.drop(columns=["STT"], axis=1)
         df = df.drop(columns=['NO2'], axis=1)
+        df = df.drop(columns=['O3'], axis=1)
         
         for attr in df.columns.to_list():
             arr: np
@@ -131,7 +149,7 @@ def feature_engineering_and_preprocessing(data_dir):
 
 def prepare_data(dir, dst_pt, lagged_number=7):
 
-    cols = ['Date','Day_Of_Week','CO','PM-10','PM-2-5','SO2','VN_AQI','mon','tu',   'wed','thu','fri','sat','sun','north','middle','south','spring','summer','autumn','winter','dry','rain']
+    cols = ['Date','Day_Of_Week','CO','PM-10','PM-2-5','SO2','VN_AQI','mon','tu', 'wed','thu','fri','sat','sun','north','middle','south','spring','summer','autumn','winter','dry','rain']
 
     json_file = dir + "dataset_info.json"
     with open(json_file, "r", encoding='utf-8') as j:

@@ -51,7 +51,7 @@ def load_data(data_path):
     return X, Y
 
 def predict_next_7_days(ckpt_dir, data_dir):
-    csv_obj = pd.read_csv(data_dir+'processed_HN_NguyenVanCu_28560877461938780203765592307.csv', encoding='utf-8')
+    csv_obj = pd.read_csv(data_dir+'processed_HN_KDT_KK.csv', encoding='utf-8')
     latest_day = pd.to_datetime(csv_obj['Date'][0])
 
     targets = ['CO', 'PM-10', 'PM-2-5', 'SO2']
@@ -134,7 +134,8 @@ def visualize(plots_dir, data_dir, dict_of_list: dict[list]):
     sns.set_palette("husl")
 
     # Đọc dữ liệu
-    csv_path = data_dir + 'processed_HN_NguyenVanCu_28560877461938780203765592307.csv'
+    # csv_path = data_dir + 'processed_HN_NguyenVanCu_28560877461938780203765592307.csv'
+    csv_path = data_dir + 'processed_HN_KDT_KK.csv'
     csv_obj = pd.read_csv(csv_path, encoding='utf-8')
     csv_obj['Date'] = pd.to_datetime(csv_obj['Date'])
 
@@ -143,7 +144,7 @@ def visualize(plots_dir, data_dir, dict_of_list: dict[list]):
 
     # Tạo danh sách ngày: 29 ngày trước + 1 latest + 7 ngày sau = 37 ngày
     day_list = []
-    for i in range(1, 30):
+    for i in range(1, 20):  # base on the n_records of the station
         day_list.append(latest_day - pd.Timedelta(days=i))
     day_list.append(latest_day)  # bao gồm ngày latest
     for i in range(1, 8):

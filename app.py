@@ -41,17 +41,17 @@ def run_pipeline():
     """Logic chạy pipeline cũ (XGBoost + Static Plots)"""
     global LAST_RUN_TIME
     print("\n--- STARTING AUTOMATIC DATA PIPELINE ---")
-    try:
-        crawl_data(data_dir)
-        drop_col(data_dir)
-        feature_engineering_and_preprocessing(data_dir)
-        prepare_data(data_dir, data_dir + '/real_time_v1.pt')
-        dict_of_list = predict_next_7_days(ckpts_dir, data_dir)
-        visualize(plots_dir, data_dir, dict_of_list)
-        LAST_RUN_TIME = datetime.now().strftime("%H:%M:%S ngày %d/%m/%Y")
-        print(f"--- PIPELINE COMPLETE. LAST RAN: {LAST_RUN_TIME} ---")
-    except Exception as e:
-        print(f"Error while running Pipeline: {e}")
+    # try:
+    crawl_data(data_dir)
+    drop_col(data_dir)
+    feature_engineering_and_preprocessing(data_dir)
+    prepare_data(data_dir, data_dir + '/real_time_v1.pt')
+    dict_of_list = predict_next_7_days(ckpts_dir, data_dir)
+    visualize(plots_dir, data_dir, dict_of_list)
+    LAST_RUN_TIME = datetime.now().strftime("%H:%M:%S ngày %d/%m/%Y")
+    print(f"--- PIPELINE COMPLETE. LAST RAN: {LAST_RUN_TIME} ---")
+    # except Exception as e:
+    #     print(f"Error while running Pipeline: {e}")
 
 def start_scheduler():
     global scheduler
@@ -114,7 +114,7 @@ def get_history_data_for_ai(province_name):
             break
             
     if not target_file:
-        raise ValueError(f"Không tìm thấy dữ liệu cho địa phương: {province_name}")
+        raise ValueError(f"Không tìm thấy dữ liệu cho tỉnh {province_name}")
 
     full_path = os.path.join(data_dir, target_file)
     if not os.path.exists(full_path):
@@ -175,5 +175,6 @@ def predict_advanced():
         return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == '__main__':
+    run_pipeline()
     start_scheduler()
     app.run(debug=True, host='127.0.0.1', port=8000)
